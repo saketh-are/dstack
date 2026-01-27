@@ -46,6 +46,7 @@ export FAKE_KMS_KID=poc
 export KEYPROVIDER_BIN=$PWD/keyprovider.py
 export PLAINTEXT_IMAGE_REF=alpine:3.20
 export ENCRYPTED_IMAGE_REF=<HOST_IP>:5000/poc:encrypted
+export SKOPEO_DEST_TLS_VERIFY=false
 ./encrypt-image.sh
 ```
 
@@ -77,6 +78,7 @@ export ENCRYPTED_IMAGE_REF=<HOST_IP>:5000/poc:encrypted
 export LOCAL_IMAGE_REF=poc:decrypted
 export FAKE_KMS_URL=http://<HOST_IP>:9090
 export FAKE_KMS_KID=poc
+export SKOPEO_SRC_TLS_VERIFY=false
 ```
 
 ### 6) Build the app-compose.json
