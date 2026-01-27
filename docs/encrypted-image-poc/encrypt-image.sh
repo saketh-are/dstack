@@ -38,7 +38,15 @@ KEYPROVIDER_PARAMS="${KEYPROVIDER_PARAMS:-kid=${FAKE_KMS_KID:-poc}}"
 SRC_REF="${PLAINTEXT_IMAGE_REF}"
 DST_REF="${ENCRYPTED_IMAGE_REF}"
 if [[ "${SRC_REF}" != *"://"* ]]; then
-  SRC_REF="docker-daemon:${SRC_REF}"
+  if command -v docker >/dev/null 2>&1; then
+    if docker image inspect "${SRC_REF}" >/dev/null 2>&1; then
+      SRC_REF="docker-daemon:${SRC_REF}"
+    else
+      SRC_REF="docker://${SRC_REF}"
+    fi
+  else
+    SRC_REF="docker://${SRC_REF}"
+  fi
 fi
 if [[ "${DST_REF}" != *"://"* ]]; then
   DST_REF="docker://${DST_REF}"
