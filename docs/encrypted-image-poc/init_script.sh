@@ -12,9 +12,14 @@ log() {
 
 PERSIST_DIR="${PERSIST_DIR:-/dstack/persistent}"
 OCI_CACHE_DIR="${OCI_CACHE_DIR:-${PERSIST_DIR}/oci-cache}"
+OCICRYPT_DIR="${OCICRYPT_DIR:-/run/ocicrypt}"
 
 log "init: creating persistent dirs"
 mkdir -p "${OCI_CACHE_DIR}"
 chmod 700 "${OCI_CACHE_DIR}"
+
+log "init: creating ocicrypt runtime dir"
+mkdir -p "${OCICRYPT_DIR}"
+chmod 700 "${OCICRYPT_DIR}"
 
 log "init: done"

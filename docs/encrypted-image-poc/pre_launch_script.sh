@@ -31,6 +31,13 @@ sanitize_ref() {
 
 require_cmd docker
 require_cmd skopeo
+require_cmd base64
+require_cmd flock
+
+if ! skopeo copy --help 2>/dev/null | grep -q -- '--decryption-key'; then
+  log "error: skopeo build lacks ocicrypt decryption support (--decryption-key)"
+  exit 1
+fi
 
 require_var ENCRYPTED_IMAGE_REF
 require_var LOCAL_IMAGE_REF
@@ -45,13 +52,21 @@ if [[ ! -x "${KEYPROVIDER_BIN}" ]]; then
   log "hint: stage keyprovider.py in init_script or bake it into the base image"
   exit 1
 fi
+if head -n 1 "${KEYPROVIDER_BIN}" | grep -qi 'python'; then
+  require_cmd python3
+fi
 
 LOCK_FILE="${LOCK_FILE:-/run/dstack/pull-decrypt.lock}"
+LOCK_TIMEOUT="${LOCK_TIMEOUT:-0}"
 mkdir -p "$(dirname "${LOCK_FILE}")"
 exec 9>"${LOCK_FILE}"
-if ! flock -n 9; then
-  log "another pull/decrypt is already running; exiting"
-  exit 0
+if [[ "${LOCK_TIMEOUT}" -gt 0 ]]; then
+  if ! flock -w "${LOCK_TIMEOUT}" 9; then
+    log "error: timed out waiting for pull/decrypt lock"
+    exit 1
+  fi
+else
+  flock 9
 fi
 
 OCICRYPT_DIR="${OCICRYPT_DIR:-/run/ocicrypt}"
@@ -97,13 +112,21 @@ fi
 
 DOCKER_ROOT=$(docker info -f '{{.DockerRootDir}}' || true)
 if [[ -n "${DOCKER_ROOT}" ]]; then
-  DOCKER_ROOT_SRC=$(findmnt -n -o SOURCE -T "${DOCKER_ROOT}" 2>/dev/null || true)
-  log "docker root: ${DOCKER_ROOT} (mount source: ${DOCKER_ROOT_SRC})"
-  if [[ "${REQUIRE_ENCRYPTED_STORAGE:-0}" == "1" ]]; then
-    if [[ "${DOCKER_ROOT_SRC}" != /dev/mapper/* && "${DOCKER_ROOT_SRC}" != /dev/dm-* ]]; then
-      log "error: docker root not on encrypted mapper device"
+  if command -v findmnt >/dev/null 2>&1; then
+    DOCKER_ROOT_SRC=$(findmnt -n -o SOURCE -T "${DOCKER_ROOT}" 2>/dev/null || true)
+    log "docker root: ${DOCKER_ROOT} (mount source: ${DOCKER_ROOT_SRC})"
+    if [[ "${REQUIRE_ENCRYPTED_STORAGE:-0}" == "1" ]]; then
+      if [[ "${DOCKER_ROOT_SRC}" != /dev/mapper/* && "${DOCKER_ROOT_SRC}" != /dev/dm-* ]]; then
+        log "error: docker root not on encrypted mapper device"
+        exit 1
+      fi
+    fi
+  else
+    if [[ "${REQUIRE_ENCRYPTED_STORAGE:-0}" == "1" ]]; then
+      log "error: findmnt missing; cannot verify encrypted storage"
       exit 1
     fi
+    log "warning: findmnt missing; skipping storage placement check"
   fi
 fi
 
@@ -126,8 +149,10 @@ fi
 
 if docker image inspect "${LOCAL_IMAGE_REF}" >/dev/null 2>&1; then
   if [[ "${FORCE_REIMPORT:-0}" != "1" ]]; then
-    log "image ${LOCAL_IMAGE_REF} already present; skipping (set FORCE_REIMPORT=1 to override)"
-    exit 0
+    if [[ -z "${REMOTE_DIGEST}" ]]; then
+      log "image ${LOCAL_IMAGE_REF} already present; remote digest unknown, skipping (set FORCE_REIMPORT=1 to override)"
+      exit 0
+    fi
   fi
 fi
 

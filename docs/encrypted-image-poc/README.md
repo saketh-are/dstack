@@ -128,3 +128,13 @@ You should see `poc:decrypted` present **before** `docker compose up` runs. The 
 - If you restart the fake KMS without a stable `FAKE_KMS_MASTER_KEY_B64`, old images will fail to decrypt (expected for this POC).
 - To enforce the "fail closed" behavior, `pre_launch_script.sh` exits non-zero on any decrypt/import failure.
 - For storage placement validation, set `REQUIRE_ENCRYPTED_STORAGE=1` in `pre_launch_script.sh`.
+
+## CVM dependencies
+
+Inside the CVM, you need:
+
+- `skopeo` built with ocicrypt support (`--decryption-key` is available)
+- `docker`
+- `flock`, `base64`
+- `findmnt` if you enable `REQUIRE_ENCRYPTED_STORAGE=1`
+- `python3` if you use the provided `keyprovider.py` command (or substitute a non-Python provider)
