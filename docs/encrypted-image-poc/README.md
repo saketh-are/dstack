@@ -21,6 +21,17 @@ The fake KMS here is intentionally minimal and **not secure**. It exists only to
 
 ## POC steps (end-to-end)
 
+### 0) One-shot host setup (optional)
+
+If you want the host-side steps automated (registry + fake KMS + encrypted image + app-compose.json generation), run:
+
+```bash
+cd docs/encrypted-image-poc
+./run-poc.sh
+```
+
+This does **not** boot the CVM. It generates `app-compose.json` and prints the next steps.
+
 ### 1) Start a registry (host)
 
 ```bash
