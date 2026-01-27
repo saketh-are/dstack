@@ -4,6 +4,6 @@
 
 services:
   demo:
-    image: localhost:5000/poc:decrypted
+    image: poc:decrypted
     pull_policy: never
     command: ["sh", "-c", "echo decrypted image is ready; sleep infinity"]

@@ -45,7 +45,7 @@ export FAKE_KMS_URL=http://<HOST_IP>:9090
 export FAKE_KMS_KID=poc
 export KEYPROVIDER_BIN=$PWD/keyprovider.py
 export PLAINTEXT_IMAGE_REF=alpine:3.20
-export ENCRYPTED_IMAGE_REF=localhost:5000/poc:encrypted
+export ENCRYPTED_IMAGE_REF=<HOST_IP>:5000/poc:encrypted
 ./encrypt-image.sh
 ```
 
@@ -73,8 +73,8 @@ chmod 700 /run/ocicrypt/keyprovider.py
 Edit `pre_launch_script.sh` to set the required values **near the top** (or inject them via app-compose envs if you prefer):
 
 ```bash
-export ENCRYPTED_IMAGE_REF=localhost:5000/poc:encrypted
-export LOCAL_IMAGE_REF=localhost:5000/poc:decrypted
+export ENCRYPTED_IMAGE_REF=<HOST_IP>:5000/poc:encrypted
+export LOCAL_IMAGE_REF=poc:decrypted
 export FAKE_KMS_URL=http://<HOST_IP>:9090
 export FAKE_KMS_KID=poc
 ```
@@ -118,7 +118,7 @@ Inside the CVM:
 docker images | grep poc
 ```
 
-You should see `localhost:5000/poc:decrypted` present **before** `docker compose up` runs. The container should start without pulling from the registry.
+You should see `poc:decrypted` present **before** `docker compose up` runs. The container should start without pulling from the registry.
 
 ## Notes
 
