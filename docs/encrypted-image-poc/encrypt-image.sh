@@ -80,10 +80,10 @@ if [[ -n "${REGISTRY_AUTH_FILE:-}" ]]; then
   SKOPEO_ARGS+=(--authfile "${REGISTRY_AUTH_FILE}")
 fi
 if [[ -n "${SKOPEO_SRC_TLS_VERIFY:-}" ]]; then
-  SKOPEO_ARGS+=(--src-tls-verify "${SKOPEO_SRC_TLS_VERIFY}")
+  SKOPEO_ARGS+=(--src-tls-verify="${SKOPEO_SRC_TLS_VERIFY}")
 fi
 if [[ -n "${SKOPEO_DEST_TLS_VERIFY:-}" ]]; then
-  SKOPEO_ARGS+=(--dest-tls-verify "${SKOPEO_DEST_TLS_VERIFY}")
+  SKOPEO_ARGS+=(--dest-tls-verify="${SKOPEO_DEST_TLS_VERIFY}")
 fi
 
 log "encrypting ${SRC_REF} -> ${DST_REF}"
