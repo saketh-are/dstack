@@ -65,14 +65,6 @@ ENCRYPTED_IMAGE_REF="${ENCRYPTED_IMAGE_REF:-${HOST_IP}:${REGISTRY_PORT}/poc:encr
 SKOPEO_BIN="$(command -v skopeo)"
 mkdir -p "${SKOPEO_BIN_DIR}"
 cp "${SKOPEO_BIN}" "${SKOPEO_BIN_DIR}/${SKOPEO_BIN_NAME}"
-SKOPEO_SHA256=$(python3 - <<PY
-import hashlib
-from pathlib import Path
-path = Path("${SKOPEO_BIN_DIR}") / "${SKOPEO_BIN_NAME}"
-data = path.read_bytes()
-print(hashlib.sha256(data).hexdigest())
-PY
-)
 SKOPEO_URL="http://${HOST_IP}:${SKOPEO_PORT}/${SKOPEO_BIN_NAME}"
 
 if docker ps -a --format '{{.Names}}' | grep -qx "${REGISTRY_NAME}"; then
@@ -148,7 +140,6 @@ awk -v enc="${ENCRYPTED_IMAGE_REF}" -v local="${LOCAL_IMAGE_REF}" -v kms="${FAKE
     print "export FAKE_KMS_KID=" kid
     print "export SKOPEO_SRC_TLS_VERIFY=false"
     print "export SKOPEO_URL='"'"${SKOPEO_URL}"'"'"
-    print "export SKOPEO_SHA256='"'"${SKOPEO_SHA256}"'"'"
   }
 }' "${SCRIPT_DIR}/pre_launch_script.sh" >"${PRE_GEN}"
 

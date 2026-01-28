@@ -42,30 +42,86 @@ ensure_skopeo() {
     exit 1
   fi
   log "skopeo missing; downloading from ${SKOPEO_URL}"
-  python3 - <<'PY'
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "${SKOPEO_URL}" -o /usr/local/bin/skopeo
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO /usr/local/bin/skopeo "${SKOPEO_URL}"
+  elif command -v busybox >/dev/null 2>&1; then
+    busybox wget -qO /usr/local/bin/skopeo "${SKOPEO_URL}"
+  else
+    python3 - <<'PY'
 import os
-import urllib.request
+import socket
+import sys
 
 url = os.environ.get("SKOPEO_URL", "")
-if not url:
-    print("error: missing SKOPEO_URL", file=sys.stderr)
+if not url or not url.startswith("http://"):
+    print("error: SKOPEO_URL must be http://...", file=sys.stderr)
     sys.exit(1)
 
-with urllib.request.urlopen(url, timeout=30) as resp:
-    data = resp.read()
+rest = url[len("http://"):]
+host_port, _, path = rest.partition("/")
+path = "/" + path if path else "/"
+if ":" in host_port:
+    host, port_s = host_port.rsplit(":", 1)
+    port = int(port_s)
+else:
+    host, port = host_port, 80
+
+s = socket.create_connection((host, port), timeout=30)
+req = f"GET {path} HTTP/1.0\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+s.sendall(req.encode("ascii"))
+data = b""
+while True:
+    chunk = s.recv(8192)
+    if not chunk:
+        break
+    data += chunk
+s.close()
+
+header, _, body = data.partition(b"\r\n\r\n")
+status_line = header.split(b"\r\n", 1)[0]
+if not status_line.startswith(b"HTTP/"):
+    print("error: invalid HTTP response", file=sys.stderr)
+    sys.exit(1)
+parts = status_line.split()
+code = int(parts[1]) if len(parts) > 1 else 0
+if code != 200:
+    print(f"error: HTTP {code} fetching skopeo", file=sys.stderr)
+    sys.exit(1)
 
 dst = "/usr/local/bin/skopeo"
 os.makedirs(os.path.dirname(dst), exist_ok=True)
 with open(dst, "wb") as f:
-    f.write(data)
+    f.write(body)
 os.chmod(dst, 0o755)
 PY
+  fi
+  chmod 755 /usr/local/bin/skopeo
 }
 
 b64decode() {
   python3 - <<'PY'
-import sys, base64
-sys.stdout.buffer.write(base64.b64decode(sys.stdin.buffer.read()))
+import sys
+
+alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+index = {c: i for i, c in enumerate(alphabet)}
+data = sys.stdin.read()
+data = "".join(data.split())
+data = data.rstrip("=")
+
+out = bytearray()
+buf = 0
+bits = 0
+for ch in data:
+    if ch not in index:
+        continue
+    buf = (buf << 6) | index[ch]
+    bits += 6
+    if bits >= 8:
+        bits -= 8
+        out.append((buf >> bits) & 0xFF)
+sys.stdout.buffer.write(out)
 PY
 }
 

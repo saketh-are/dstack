@@ -4,12 +4,10 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-import base64
 import json
 import os
 import sys
-import urllib.error
-import urllib.request
+import socket
 
 
 def log(message):
@@ -19,11 +17,39 @@ def log(message):
 def b64decode(value):
     if isinstance(value, bytes):
         value = value.decode("utf-8")
-    return base64.b64decode(value.encode("utf-8"), validate=True)
+    value = "".join(value.split())
+    value = value.rstrip("=")
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    index = {c: i for i, c in enumerate(alphabet)}
+    out = bytearray()
+    buf = 0
+    bits = 0
+    for ch in value:
+        if ch not in index:
+            continue
+        buf = (buf << 6) | index[ch]
+        bits += 6
+        if bits >= 8:
+            bits -= 8
+            out.append((buf >> bits) & 0xFF)
+    return bytes(out)
 
 
 def b64encode(value):
-    return base64.b64encode(value).decode("utf-8")
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    out = []
+    for i in range(0, len(value), 3):
+        chunk = value[i : i + 3]
+        pad = 3 - len(chunk)
+        n = 0
+        for b in chunk:
+            n = (n << 8) | b
+        n <<= pad * 8
+        for shift in (18, 12, 6, 0):
+            out.append(alphabet[(n >> shift) & 0x3F])
+        if pad:
+            out[-pad:] = "=" * pad
+    return "".join(out)
 
 
 def extract_params(config):
@@ -46,15 +72,50 @@ def extract_params(config):
     return params
 
 
-def kms_request(kms_url, path, payload):
-    data = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(
-        kms_url.rstrip("/") + path,
-        data=data,
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(request, timeout=5) as response:
-        body = response.read()
+def _parse_http_url(url):
+    if not url.startswith("http://"):
+        raise ValueError("only http:// URLs are supported")
+    rest = url[len("http://") :]
+    host_port, _, _path = rest.partition("/")
+    path = "/" + _path if _path else "/"
+    if ":" in host_port:
+        host, port_s = host_port.rsplit(":", 1)
+        port = int(port_s)
+    else:
+        host, port = host_port, 80
+    return host, port, path
+
+
+def _http_post_json(url, path, payload):
+    host, port, _ = _parse_http_url(url)
+    body = json.dumps(payload).encode("utf-8")
+    request = (
+        f"POST {path} HTTP/1.0\r\n"
+        f"Host: {host}\r\n"
+        "Content-Type: application/json\r\n"
+        f"Content-Length: {len(body)}\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+    ).encode("ascii") + body
+
+    sock = socket.create_connection((host, port), timeout=5)
+    sock.sendall(request)
+    data = b""
+    while True:
+        chunk = sock.recv(4096)
+        if not chunk:
+            break
+        data += chunk
+    sock.close()
+
+    header, _, body = data.partition(b"\r\n\r\n")
+    status_line = header.split(b"\r\n", 1)[0]
+    if not status_line.startswith(b"HTTP/"):
+        raise ValueError("invalid HTTP response from KMS")
+    parts = status_line.split()
+    code = int(parts[1]) if len(parts) > 1 else 0
+    if code >= 300:
+        raise ValueError(f"KMS returned HTTP {code}")
     return json.loads(body.decode("utf-8"))
 
 
@@ -73,7 +134,7 @@ def handle_keywrap(request):
         raise ValueError("missing optsdata for keywrap")
 
     dek = b64decode(opts_data)
-    response = kms_request(
+    response = _http_post_json(
         kms_url,
         "/wrap",
         {
@@ -126,7 +187,7 @@ def handle_keyunwrap(request):
         or os.getenv("FAKE_KMS_KID", "poc")
     )
 
-    response = kms_request(
+    response = _http_post_json(
         kms_url,
         "/unwrap",
         {

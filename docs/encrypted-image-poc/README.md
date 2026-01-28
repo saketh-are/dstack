@@ -31,8 +31,7 @@ cd docs/encrypted-image-poc
 ```
 
 This does **not** boot the CVM. It generates `app-compose.json` and prints the next steps. It also starts a simple
-HTTP file server that hosts a known-good `skopeo` binary; the CVM will download it on first boot if needed and
-verify the SHA-256 hash before using it.
+HTTP file server that hosts a `skopeo` binary; the CVM will download it on first boot if needed.
 
 ### 1) Start a registry (host)
 
@@ -93,7 +92,6 @@ export FAKE_KMS_URL=http://<HOST_IP>:9090
 export FAKE_KMS_KID=poc
 export SKOPEO_SRC_TLS_VERIFY=false
 export SKOPEO_URL=http://<HOST_IP>:9100/skopeo
-export SKOPEO_SHA256=<sha256-of-skopeo-binary>
 ```
 
 ### 6) Build the app-compose.json
@@ -149,7 +147,7 @@ You should see `poc:decrypted` present **before** `docker compose up` runs. The 
 Inside the CVM, you need:
 
 - `skopeo` built with ocicrypt support (`--decryption-key` is available). If it is missing, `pre_launch_script.sh`
-  can download it from `SKOPEO_URL` and verify `SKOPEO_SHA256`.
+  can download it from `SKOPEO_URL`.
 - `docker`
 - `flock`
 - `findmnt` if you enable `REQUIRE_ENCRYPTED_STORAGE=1`
