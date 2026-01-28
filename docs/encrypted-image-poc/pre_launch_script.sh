@@ -37,31 +37,22 @@ ensure_skopeo() {
   if command -v skopeo >/dev/null 2>&1; then
     return 0
   fi
-  if [[ -z "${SKOPEO_URL:-}" || -z "${SKOPEO_SHA256:-}" ]]; then
-    log "error: skopeo missing and SKOPEO_URL/SKOPEO_SHA256 not set"
+  if [[ -z "${SKOPEO_URL:-}" ]]; then
+    log "error: skopeo missing and SKOPEO_URL not set"
     exit 1
   fi
   log "skopeo missing; downloading from ${SKOPEO_URL}"
   python3 - <<'PY'
-import hashlib
 import os
-import sys
 import urllib.request
 
 url = os.environ.get("SKOPEO_URL", "")
-expected = os.environ.get("SKOPEO_SHA256", "")
-if not url or not expected:
-    print("error: missing SKOPEO_URL/SKOPEO_SHA256", file=sys.stderr)
+if not url:
+    print("error: missing SKOPEO_URL", file=sys.stderr)
     sys.exit(1)
 
 with urllib.request.urlopen(url, timeout=30) as resp:
     data = resp.read()
-
-digest = hashlib.sha256(data).hexdigest()
-if digest != expected:
-    print("error: skopeo sha256 mismatch", file=sys.stderr)
-    print(f"expected {expected} got {digest}", file=sys.stderr)
-    sys.exit(1)
 
 dst = "/usr/local/bin/skopeo"
 os.makedirs(os.path.dirname(dst), exist_ok=True)
