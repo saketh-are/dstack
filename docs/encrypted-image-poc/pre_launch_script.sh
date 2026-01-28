@@ -30,9 +30,56 @@ sanitize_ref() {
 }
 
 require_cmd docker
-require_cmd skopeo
-require_cmd base64
+require_cmd python3
 require_cmd flock
+
+ensure_skopeo() {
+  if command -v skopeo >/dev/null 2>&1; then
+    return 0
+  fi
+  if [[ -z "${SKOPEO_URL:-}" || -z "${SKOPEO_SHA256:-}" ]]; then
+    log "error: skopeo missing and SKOPEO_URL/SKOPEO_SHA256 not set"
+    exit 1
+  fi
+  log "skopeo missing; downloading from ${SKOPEO_URL}"
+  python3 - <<'PY'
+import hashlib
+import os
+import sys
+import urllib.request
+
+url = os.environ.get("SKOPEO_URL", "")
+expected = os.environ.get("SKOPEO_SHA256", "")
+if not url or not expected:
+    print("error: missing SKOPEO_URL/SKOPEO_SHA256", file=sys.stderr)
+    sys.exit(1)
+
+with urllib.request.urlopen(url, timeout=30) as resp:
+    data = resp.read()
+
+digest = hashlib.sha256(data).hexdigest()
+if digest != expected:
+    print("error: skopeo sha256 mismatch", file=sys.stderr)
+    print(f"expected {expected} got {digest}", file=sys.stderr)
+    sys.exit(1)
+
+dst = "/usr/local/bin/skopeo"
+os.makedirs(os.path.dirname(dst), exist_ok=True)
+with open(dst, "wb") as f:
+    f.write(data)
+os.chmod(dst, 0o755)
+PY
+}
+
+b64decode() {
+  python3 - <<'PY'
+import sys, base64
+sys.stdout.buffer.write(base64.b64decode(sys.stdin.buffer.read()))
+PY
+}
+
+ensure_skopeo
+require_cmd skopeo
 
 if ! skopeo copy --help 2>/dev/null | grep -q -- '--decryption-key'; then
   log "error: skopeo build lacks ocicrypt decryption support (--decryption-key)"
@@ -94,7 +141,7 @@ export KEYPROVIDER_NAME
 
 if [[ -n "${REGISTRY_AUTH_B64:-}" ]]; then
   AUTH_FILE="${OCICRYPT_DIR}/registry-auth.json"
-  printf '%s' "${REGISTRY_AUTH_B64}" | base64 -d >"${AUTH_FILE}"
+  printf '%s' "${REGISTRY_AUTH_B64}" | b64decode >"${AUTH_FILE}"
   chmod 600 "${AUTH_FILE}"
   export REGISTRY_AUTH_FILE="${AUTH_FILE}"
 fi
