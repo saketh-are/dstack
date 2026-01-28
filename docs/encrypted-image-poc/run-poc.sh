@@ -54,6 +54,10 @@ KMS_LOG="${KMS_LOG:-${SCRIPT_DIR}/fake_kms.log}"
 SKOPEO_PORT="${SKOPEO_PORT:-9100}"
 SKOPEO_BIN_DIR="${SKOPEO_BIN_DIR:-${SCRIPT_DIR}/poc-bins}"
 SKOPEO_BIN_NAME="${SKOPEO_BIN_NAME:-skopeo}"
+SKOPEO_SRC_PATH="${SKOPEO_SRC_PATH:-}"
+LIBSUBID_PATH="${LIBSUBID_PATH:-}"
+LIBECONF_PATH="${LIBECONF_PATH:-}"
+LIBCRYPT_PATH="${LIBCRYPT_PATH:-}"
 SKOPEO_PID_FILE="${SKOPEO_PID_FILE:-/tmp/skopeo_http.pid}"
 SKOPEO_LOG="${SKOPEO_LOG:-${SCRIPT_DIR}/skopeo_http.log}"
 
@@ -62,10 +66,55 @@ PLAINTEXT_IMAGE_REF="${PLAINTEXT_IMAGE_REF:-alpine:3.20}"
 LOCAL_IMAGE_REF="${LOCAL_IMAGE_REF:-poc:decrypted}"
 ENCRYPTED_IMAGE_REF="${ENCRYPTED_IMAGE_REF:-${HOST_IP}:${REGISTRY_PORT}/poc:encrypted}"
 
-SKOPEO_BIN="$(command -v skopeo)"
+if [[ -n "${SKOPEO_SRC_PATH}" ]]; then
+  SKOPEO_BIN="${SKOPEO_SRC_PATH}"
+else
+  SKOPEO_BIN="$(command -v skopeo)"
+fi
+if [[ ! -x "${SKOPEO_BIN}" ]]; then
+  log "error: skopeo binary not found or not executable at ${SKOPEO_BIN}"
+  exit 1
+fi
 mkdir -p "${SKOPEO_BIN_DIR}"
 cp "${SKOPEO_BIN}" "${SKOPEO_BIN_DIR}/${SKOPEO_BIN_NAME}"
+mkdir -p "${SKOPEO_BIN_DIR}/lib"
+if [[ -n "${LIBSUBID_PATH}" ]]; then
+  cp "${LIBSUBID_PATH}" "${SKOPEO_BIN_DIR}/lib/$(basename "${LIBSUBID_PATH}")"
+  if [[ "${LIBSUBID_PATH}" == *libsubid.so.5.0.0 ]]; then
+    ln -sf "${SKOPEO_BIN_DIR}/lib/libsubid.so.5.0.0" "${SKOPEO_BIN_DIR}/lib/libsubid.so.5"
+  elif [[ "${LIBSUBID_PATH}" == *libsubid.so.5 ]]; then
+    ln -sf "${SKOPEO_BIN_DIR}/lib/libsubid.so.5" "${SKOPEO_BIN_DIR}/lib/libsubid.so.5"
+  fi
+fi
+if [[ -n "${LIBECONF_PATH}" ]]; then
+  cp "${LIBECONF_PATH}" "${SKOPEO_BIN_DIR}/lib/$(basename "${LIBECONF_PATH}")"
+  if [[ "${LIBECONF_PATH}" == *libeconf.so.0.* ]]; then
+    ln -sf "${SKOPEO_BIN_DIR}/lib/$(basename "${LIBECONF_PATH}")" "${SKOPEO_BIN_DIR}/lib/libeconf.so.0"
+  elif [[ "${LIBECONF_PATH}" == *libeconf.so.0 ]]; then
+    ln -sf "${SKOPEO_BIN_DIR}/lib/libeconf.so.0" "${SKOPEO_BIN_DIR}/lib/libeconf.so.0"
+  fi
+fi
+if [[ -n "${LIBCRYPT_PATH}" ]]; then
+  cp "${LIBCRYPT_PATH}" "${SKOPEO_BIN_DIR}/lib/$(basename "${LIBCRYPT_PATH}")"
+  if [[ "${LIBCRYPT_PATH}" == *libcrypt.so.2.* ]]; then
+    ln -sf "${SKOPEO_BIN_DIR}/lib/$(basename "${LIBCRYPT_PATH}")" "${SKOPEO_BIN_DIR}/lib/libcrypt.so.2"
+  elif [[ "${LIBCRYPT_PATH}" == *libcrypt.so.2 ]]; then
+    ln -sf "${SKOPEO_BIN_DIR}/lib/libcrypt.so.2" "${SKOPEO_BIN_DIR}/lib/libcrypt.so.2"
+  fi
+fi
 SKOPEO_URL="http://${HOST_IP}:${SKOPEO_PORT}/${SKOPEO_BIN_NAME}"
+LIBSUBID_URL=""
+LIBECONF_URL=""
+LIBCRYPT_URL=""
+if [[ -f "${SKOPEO_BIN_DIR}/lib/libsubid.so.5" ]]; then
+  LIBSUBID_URL="http://${HOST_IP}:${SKOPEO_PORT}/lib/libsubid.so.5"
+fi
+if [[ -f "${SKOPEO_BIN_DIR}/lib/libeconf.so.0" ]]; then
+  LIBECONF_URL="http://${HOST_IP}:${SKOPEO_PORT}/lib/libeconf.so.0"
+fi
+if [[ -f "${SKOPEO_BIN_DIR}/lib/libcrypt.so.2" ]]; then
+  LIBCRYPT_URL="http://${HOST_IP}:${SKOPEO_PORT}/lib/libcrypt.so.2"
+fi
 
 if docker ps -a --format '{{.Names}}' | grep -qx "${REGISTRY_NAME}"; then
   if ! docker ps --format '{{.Names}}' | grep -qx "${REGISTRY_NAME}"; then
@@ -129,7 +178,7 @@ APP_COMPOSE="${SCRIPT_DIR}/app-compose.json"
   echo "chmod 700 /run/ocicrypt/keyprovider.py"
 } >"${INIT_GEN}"
 
-awk -v enc="${ENCRYPTED_IMAGE_REF}" -v local="${LOCAL_IMAGE_REF}" -v kms="${FAKE_KMS_URL}" -v kid="${FAKE_KMS_KID}" '
+awk -v enc="${ENCRYPTED_IMAGE_REF}" -v local="${LOCAL_IMAGE_REF}" -v kms="${FAKE_KMS_URL}" -v kid="${FAKE_KMS_KID}" -v sk="${SKOPEO_URL}" -v sub="${LIBSUBID_URL}" -v ec="${LIBECONF_URL}" -v lc="${LIBCRYPT_URL}" '
 {
   print
   if ($0 == "set -euo pipefail") {
@@ -139,7 +188,16 @@ awk -v enc="${ENCRYPTED_IMAGE_REF}" -v local="${LOCAL_IMAGE_REF}" -v kms="${FAKE
     print "export FAKE_KMS_URL=" kms
     print "export FAKE_KMS_KID=" kid
     print "export SKOPEO_SRC_TLS_VERIFY=false"
-    print "export SKOPEO_URL='"'"${SKOPEO_URL}"'"'"
+    print "export SKOPEO_URL='"'"'" sk "'"'"'"
+    if (sub != "") {
+      print "export LIBSUBID_URL='"'"'" sub "'"'"'"
+    }
+    if (ec != "") {
+      print "export LIBECONF_URL='"'"'" ec "'"'"'"
+    }
+    if (lc != "") {
+      print "export LIBCRYPT_URL='"'"'" lc "'"'"'"
+    }
   }
 }' "${SCRIPT_DIR}/pre_launch_script.sh" >"${PRE_GEN}"
 

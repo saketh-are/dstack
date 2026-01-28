@@ -11,7 +11,9 @@ log() {
 }
 
 SKOPEO_BIN_DIR="${SKOPEO_BIN_DIR:-/run/ocicrypt/bin}"
+SKOPEO_LIB_DIR="${SKOPEO_LIB_DIR:-/run/ocicrypt/lib}"
 export PATH="${SKOPEO_BIN_DIR}:${PATH}"
+export LD_LIBRARY_PATH="${SKOPEO_LIB_DIR}:${LD_LIBRARY_PATH:-}"
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -36,31 +38,25 @@ require_cmd docker
 require_cmd python3
 require_cmd flock
 
-ensure_skopeo() {
-  if command -v skopeo >/dev/null 2>&1; then
-    return 0
-  fi
-  if [[ -z "${SKOPEO_URL:-}" ]]; then
-    log "error: skopeo missing and SKOPEO_URL not set"
-    exit 1
-  fi
-  mkdir -p "${SKOPEO_BIN_DIR}"
-  log "skopeo missing; downloading from ${SKOPEO_URL}"
+download_url() {
+  local url="$1"
+  local dest="$2"
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "${SKOPEO_URL}" -o "${SKOPEO_BIN_DIR}/skopeo"
+    curl -fsSL "${url}" -o "${dest}"
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO "${SKOPEO_BIN_DIR}/skopeo" "${SKOPEO_URL}"
+    wget -qO "${dest}" "${url}"
   elif command -v busybox >/dev/null 2>&1; then
-    busybox wget -qO "${SKOPEO_BIN_DIR}/skopeo" "${SKOPEO_URL}"
+    busybox wget -qO "${dest}" "${url}"
   else
-    python3 - <<'PY'
+    DL_URL="${url}" DL_DEST="${dest}" python3 - <<'PY'
 import os
 import socket
 import sys
 
-url = os.environ.get("SKOPEO_URL", "")
-if not url or not url.startswith("http://"):
-    print("error: SKOPEO_URL must be http://...", file=sys.stderr)
+url = os.environ.get("DL_URL", "")
+dest = os.environ.get("DL_DEST", "")
+if not url or not dest or not url.startswith("http://"):
+    print("error: download URL must be http://", file=sys.stderr)
     sys.exit(1)
 
 rest = url[len("http://"):]
@@ -91,17 +87,39 @@ if not status_line.startswith(b"HTTP/"):
 parts = status_line.split()
 code = int(parts[1]) if len(parts) > 1 else 0
 if code != 200:
-    print(f"error: HTTP {code} fetching skopeo", file=sys.stderr)
+    print(f"error: HTTP {code} fetching {url}", file=sys.stderr)
     sys.exit(1)
 
-dst = os.environ.get("SKOPEO_BIN_DIR", "/run/ocicrypt/bin")
-os.makedirs(dst, exist_ok=True)
-dst = os.path.join(dst, "skopeo")
-with open(dst, "wb") as f:
+os.makedirs(os.path.dirname(dest), exist_ok=True)
+with open(dest, "wb") as f:
     f.write(body)
-os.chmod(dst, 0o755)
 PY
   fi
+}
+
+ensure_skopeo() {
+  if command -v skopeo >/dev/null 2>&1; then
+    return 0
+  fi
+  if [[ -z "${SKOPEO_URL:-}" ]]; then
+    log "error: skopeo missing and SKOPEO_URL not set"
+    exit 1
+  fi
+  mkdir -p "${SKOPEO_BIN_DIR}"
+  if [[ -n "${LIBSUBID_URL:-}" || -n "${LIBECONF_URL:-}" || -n "${LIBCRYPT_URL:-}" ]]; then
+    mkdir -p "${SKOPEO_LIB_DIR}"
+    if [[ -n "${LIBSUBID_URL:-}" ]]; then
+      download_url "${LIBSUBID_URL}" "${SKOPEO_LIB_DIR}/libsubid.so.5"
+    fi
+    if [[ -n "${LIBECONF_URL:-}" ]]; then
+      download_url "${LIBECONF_URL}" "${SKOPEO_LIB_DIR}/libeconf.so.0"
+    fi
+    if [[ -n "${LIBCRYPT_URL:-}" ]]; then
+      download_url "${LIBCRYPT_URL}" "${SKOPEO_LIB_DIR}/libcrypt.so.2"
+    fi
+  fi
+  log "skopeo missing; downloading from ${SKOPEO_URL}"
+  download_url "${SKOPEO_URL}" "${SKOPEO_BIN_DIR}/skopeo"
   chmod 755 "${SKOPEO_BIN_DIR}/skopeo"
 }
 
