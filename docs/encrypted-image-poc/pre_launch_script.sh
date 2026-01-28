@@ -10,6 +10,9 @@ log() {
   printf '%s\n' "$*" >&2
 }
 
+SKOPEO_BIN_DIR="${SKOPEO_BIN_DIR:-/run/ocicrypt/bin}"
+export PATH="${SKOPEO_BIN_DIR}:${PATH}"
+
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
     log "error: missing required command '$1'"
@@ -41,13 +44,14 @@ ensure_skopeo() {
     log "error: skopeo missing and SKOPEO_URL not set"
     exit 1
   fi
+  mkdir -p "${SKOPEO_BIN_DIR}"
   log "skopeo missing; downloading from ${SKOPEO_URL}"
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "${SKOPEO_URL}" -o /usr/local/bin/skopeo
+    curl -fsSL "${SKOPEO_URL}" -o "${SKOPEO_BIN_DIR}/skopeo"
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO /usr/local/bin/skopeo "${SKOPEO_URL}"
+    wget -qO "${SKOPEO_BIN_DIR}/skopeo" "${SKOPEO_URL}"
   elif command -v busybox >/dev/null 2>&1; then
-    busybox wget -qO /usr/local/bin/skopeo "${SKOPEO_URL}"
+    busybox wget -qO "${SKOPEO_BIN_DIR}/skopeo" "${SKOPEO_URL}"
   else
     python3 - <<'PY'
 import os
@@ -90,14 +94,15 @@ if code != 200:
     print(f"error: HTTP {code} fetching skopeo", file=sys.stderr)
     sys.exit(1)
 
-dst = "/usr/local/bin/skopeo"
-os.makedirs(os.path.dirname(dst), exist_ok=True)
+dst = os.environ.get("SKOPEO_BIN_DIR", "/run/ocicrypt/bin")
+os.makedirs(dst, exist_ok=True)
+dst = os.path.join(dst, "skopeo")
 with open(dst, "wb") as f:
     f.write(body)
 os.chmod(dst, 0o755)
 PY
   fi
-  chmod 755 /usr/local/bin/skopeo
+  chmod 755 "${SKOPEO_BIN_DIR}/skopeo"
 }
 
 b64decode() {
