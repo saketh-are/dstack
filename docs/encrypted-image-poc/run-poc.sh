@@ -178,7 +178,7 @@ APP_COMPOSE="${SCRIPT_DIR}/app-compose.json"
   echo "chmod 700 /run/ocicrypt/keyprovider.py"
 } >"${INIT_GEN}"
 
-awk -v enc="${ENCRYPTED_IMAGE_REF}" -v local="${LOCAL_IMAGE_REF}" -v kms="${FAKE_KMS_URL}" -v kid="${FAKE_KMS_KID}" -v sk="${SKOPEO_URL}" -v sub="${LIBSUBID_URL}" -v ec="${LIBECONF_URL}" -v lc="${LIBCRYPT_URL}" '
+awk -v enc="${ENCRYPTED_IMAGE_REF}" -v local="${LOCAL_IMAGE_REF}" -v kms="${FAKE_KMS_URL}" -v kid="${FAKE_KMS_KID}" -v skurl="${SKOPEO_URL}" -v suburl="${LIBSUBID_URL}" -v ecurl="${LIBECONF_URL}" -v lcurl="${LIBCRYPT_URL}" '
 {
   print
   if ($0 == "set -euo pipefail") {
@@ -188,15 +188,15 @@ awk -v enc="${ENCRYPTED_IMAGE_REF}" -v local="${LOCAL_IMAGE_REF}" -v kms="${FAKE
     print "export FAKE_KMS_URL=" kms
     print "export FAKE_KMS_KID=" kid
     print "export SKOPEO_SRC_TLS_VERIFY=false"
-    print "export SKOPEO_URL='"'"'" sk "'"'"'"
-    if (sub != "") {
-      print "export LIBSUBID_URL='"'"'" sub "'"'"'"
+    print "export SKOPEO_URL='"'"'" skurl "'"'"'"
+    if (suburl != "") {
+      print "export LIBSUBID_URL='"'"'" suburl "'"'"'"
     }
-    if (ec != "") {
-      print "export LIBECONF_URL='"'"'" ec "'"'"'"
+    if (ecurl != "") {
+      print "export LIBECONF_URL='"'"'" ecurl "'"'"'"
     }
-    if (lc != "") {
-      print "export LIBCRYPT_URL='"'"'" lc "'"'"'"
+    if (lcurl != "") {
+      print "export LIBCRYPT_URL='"'"'" lcurl "'"'"'"
     }
   }
 }' "${SCRIPT_DIR}/pre_launch_script.sh" >"${PRE_GEN}"
