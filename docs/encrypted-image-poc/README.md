@@ -14,7 +14,8 @@ The fake KMS here is intentionally minimal and **not secure**. It exists only to
 
 - `init_script.sh`: creates persistent cache dirs (no secrets).
 - `pre_launch_script.sh`: pulls + decrypts + imports the image using ocicrypt.
-- `keyprovider.py`: ocicrypt key provider **command** (invoked by skopeo).
+- `keyprovider.sh`: ocicrypt key provider **command** (invoked by skopeo, no Python required).
+- `keyprovider.py`: ocicrypt key provider **command** (legacy Python version).
 - `fake_kms.py`: toy KMS HTTP server (`/wrap`, `/unwrap`).
 - `encrypt-image.sh`: helper to create/push an encrypted image.
 - `docker-compose.yaml`: minimal workload that uses the decrypted image.
@@ -55,7 +56,7 @@ Leave it running.
 cd docs/encrypted-image-poc
 export FAKE_KMS_URL=http://<HOST_IP>:9090
 export FAKE_KMS_KID=poc
-export KEYPROVIDER_BIN=$PWD/keyprovider.py
+export KEYPROVIDER_BIN=$PWD/keyprovider.sh
 export PLAINTEXT_IMAGE_REF=alpine:3.20
 export ENCRYPTED_IMAGE_REF=<HOST_IP>:5000/poc:encrypted
 export SKOPEO_DEST_TLS_VERIFY=false
@@ -69,16 +70,16 @@ This will push an **encrypted** image into your local registry.
 The pre-launch script expects the key provider command at:
 
 ```
-/run/ocicrypt/keyprovider.py
+/run/ocicrypt/keyprovider.sh
 ```
 
 The simplest POC path is to embed it in `init_script` (no secrets involved). Add this snippet **after** the directory setup in `init_script.sh`:
 
 ```bash
-cat > /run/ocicrypt/keyprovider.py <<'PY'
-# (paste the contents of keyprovider.py here)
-PY
-chmod 700 /run/ocicrypt/keyprovider.py
+cat > /run/ocicrypt/keyprovider.sh <<'SH'
+# (paste the contents of keyprovider.sh here)
+SH
+chmod 700 /run/ocicrypt/keyprovider.sh
 ```
 
 ### 5) Set required env vars for pre_launch
@@ -151,4 +152,5 @@ Inside the CVM, you need:
 - `docker`
 - `flock`
 - `findmnt` if you enable `REQUIRE_ENCRYPTED_STORAGE=1`
-- `python3` if you use the provided `keyprovider.py` command (or substitute a non-Python provider)
+- `jq` (for the default `keyprovider.sh`; `base64` optional)
+- `python3` only if you use the legacy `keyprovider.py`

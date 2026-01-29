@@ -35,7 +35,6 @@ sanitize_ref() {
 }
 
 require_cmd docker
-require_cmd python3
 require_cmd flock
 
 download_url() {
@@ -48,75 +47,33 @@ download_url() {
   elif command -v busybox >/dev/null 2>&1; then
     busybox wget -qO "${dest}" "${url}"
   else
-    DL_URL="${url}" DL_DEST="${dest}" python3 - <<'PY'
-import os
-import socket
-import sys
-
-url = os.environ.get("DL_URL", "")
-dest = os.environ.get("DL_DEST", "")
-if not url or not dest or not url.startswith("http://"):
-    print("error: download URL must be http://", file=sys.stderr)
-    sys.exit(1)
-
-rest = url[len("http://"):]
-host_port, _, path = rest.partition("/")
-path = "/" + path if path else "/"
-if ":" in host_port:
-    host, port_s = host_port.rsplit(":", 1)
-    port = int(port_s)
-else:
-    host, port = host_port, 80
-
-s = socket.create_connection((host, port), timeout=30)
-req = f"GET {path} HTTP/1.0\r\nHost: {host}\r\nConnection: close\r\n\r\n"
-s.sendall(req.encode("ascii"))
-data = b""
-while True:
-    chunk = s.recv(8192)
-    if not chunk:
-        break
-    data += chunk
-s.close()
-
-header, _, body = data.partition(b"\r\n\r\n")
-status_line = header.split(b"\r\n", 1)[0]
-if not status_line.startswith(b"HTTP/"):
-    print("error: invalid HTTP response", file=sys.stderr)
-    sys.exit(1)
-parts = status_line.split()
-code = int(parts[1]) if len(parts) > 1 else 0
-if code != 200:
-    print(f"error: HTTP {code} fetching {url}", file=sys.stderr)
-    sys.exit(1)
-
-os.makedirs(os.path.dirname(dest), exist_ok=True)
-with open(dest, "wb") as f:
-    f.write(body)
-PY
+    log "error: missing curl/wget/busybox for download"
+    exit 1
   fi
 }
 
 ensure_skopeo() {
-  if command -v skopeo >/dev/null 2>&1; then
-    return 0
-  fi
   if [[ -z "${SKOPEO_URL:-}" ]]; then
     log "error: skopeo missing and SKOPEO_URL not set"
     exit 1
   fi
+
   mkdir -p "${SKOPEO_BIN_DIR}"
   if [[ -n "${LIBSUBID_URL:-}" || -n "${LIBECONF_URL:-}" || -n "${LIBCRYPT_URL:-}" ]]; then
     mkdir -p "${SKOPEO_LIB_DIR}"
-    if [[ -n "${LIBSUBID_URL:-}" ]]; then
+    if [[ -n "${LIBSUBID_URL:-}" && ! -s "${SKOPEO_LIB_DIR}/libsubid.so.5" ]]; then
       download_url "${LIBSUBID_URL}" "${SKOPEO_LIB_DIR}/libsubid.so.5"
     fi
-    if [[ -n "${LIBECONF_URL:-}" ]]; then
+    if [[ -n "${LIBECONF_URL:-}" && ! -s "${SKOPEO_LIB_DIR}/libeconf.so.0" ]]; then
       download_url "${LIBECONF_URL}" "${SKOPEO_LIB_DIR}/libeconf.so.0"
     fi
-    if [[ -n "${LIBCRYPT_URL:-}" ]]; then
+    if [[ -n "${LIBCRYPT_URL:-}" && ! -s "${SKOPEO_LIB_DIR}/libcrypt.so.2" ]]; then
       download_url "${LIBCRYPT_URL}" "${SKOPEO_LIB_DIR}/libcrypt.so.2"
     fi
+  fi
+
+  if command -v skopeo >/dev/null 2>&1; then
+    return 0
   fi
   log "skopeo missing; downloading from ${SKOPEO_URL}"
   download_url "${SKOPEO_URL}" "${SKOPEO_BIN_DIR}/skopeo"
@@ -124,34 +81,28 @@ ensure_skopeo() {
 }
 
 b64decode() {
-  python3 - <<'PY'
-import sys
-
-alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-index = {c: i for i, c in enumerate(alphabet)}
-data = sys.stdin.read()
-data = "".join(data.split())
-data = data.rstrip("=")
-
-out = bytearray()
-buf = 0
-bits = 0
-for ch in data:
-    if ch not in index:
-        continue
-    buf = (buf << 6) | index[ch]
-    bits += 6
-    if bits >= 8:
-        bits -= 8
-        out.append((buf >> bits) & 0xFF)
-sys.stdout.buffer.write(out)
-PY
+  if command -v base64 >/dev/null 2>&1; then
+    if base64 -d </dev/null >/dev/null 2>&1; then
+      tr -d '\n\r ' | base64 -d
+    else
+      tr -d '\n\r ' | base64 -D
+    fi
+  elif command -v jq >/dev/null 2>&1; then
+    tr -d '\n\r ' | jq -Rr '@base64d'
+  else
+    log "error: missing base64 or jq for decode"
+    exit 1
+  fi
 }
 
 ensure_skopeo
 require_cmd skopeo
 
-if ! skopeo copy --help 2>/dev/null | grep -q -- '--decryption-key'; then
+SKOPEO_HELP=$(skopeo copy --help 2>&1) || {
+  log "error: failed to run skopeo: ${SKOPEO_HELP}"
+  exit 1
+}
+if ! printf '%s' "${SKOPEO_HELP}" | grep -q -- '--decryption-key'; then
   log "error: skopeo build lacks ocicrypt decryption support (--decryption-key)"
   exit 1
 fi
@@ -162,17 +113,13 @@ require_var FAKE_KMS_URL
 
 KEYPROVIDER_NAME="${KEYPROVIDER_NAME:-fakekms}"
 KEYPROVIDER_PARAMS="${KEYPROVIDER_PARAMS:-kid=${FAKE_KMS_KID:-poc}}"
-KEYPROVIDER_BIN="${KEYPROVIDER_BIN:-/run/ocicrypt/keyprovider.py}"
+KEYPROVIDER_BIN="${KEYPROVIDER_BIN:-/run/ocicrypt/keyprovider.sh}"
 
 if [[ ! -x "${KEYPROVIDER_BIN}" ]]; then
   log "error: key provider not found at ${KEYPROVIDER_BIN}"
-  log "hint: stage keyprovider.py in init_script or bake it into the base image"
+  log "hint: stage keyprovider.sh in init_script or bake it into the base image"
   exit 1
 fi
-if head -n 1 "${KEYPROVIDER_BIN}" | grep -qi 'python'; then
-  require_cmd python3
-fi
-
 LOCK_FILE="${LOCK_FILE:-/run/dstack/pull-decrypt.lock}"
 LOCK_TIMEOUT="${LOCK_TIMEOUT:-0}"
 mkdir -p "$(dirname "${LOCK_FILE}")"

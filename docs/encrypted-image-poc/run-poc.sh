@@ -153,11 +153,11 @@ fi
 
 FAKE_KMS_URL="http://${HOST_IP}:${KMS_PORT}"
 
-chmod +x "${SCRIPT_DIR}/keyprovider.py" "${SCRIPT_DIR}/encrypt-image.sh"
+chmod +x "${SCRIPT_DIR}/keyprovider.sh" "${SCRIPT_DIR}/encrypt-image.sh"
 
 export FAKE_KMS_URL
 export FAKE_KMS_KID
-export KEYPROVIDER_BIN="${SCRIPT_DIR}/keyprovider.py"
+export KEYPROVIDER_BIN="${SCRIPT_DIR}/keyprovider.sh"
 export PLAINTEXT_IMAGE_REF
 export ENCRYPTED_IMAGE_REF
 export SKOPEO_DEST_TLS_VERIFY="${SKOPEO_DEST_TLS_VERIFY:-false}"
@@ -172,10 +172,10 @@ APP_COMPOSE="${SCRIPT_DIR}/app-compose.json"
 {
   cat "${SCRIPT_DIR}/init_script.sh"
   echo ""
-  echo "cat > /run/ocicrypt/keyprovider.py <<'PY'"
-  cat "${SCRIPT_DIR}/keyprovider.py"
-  echo "PY"
-  echo "chmod 700 /run/ocicrypt/keyprovider.py"
+  echo "cat > /run/ocicrypt/keyprovider.sh <<'SH'"
+  cat "${SCRIPT_DIR}/keyprovider.sh"
+  echo "SH"
+  echo "chmod 700 /run/ocicrypt/keyprovider.sh"
 } >"${INIT_GEN}"
 
 awk -v enc="${ENCRYPTED_IMAGE_REF}" -v local="${LOCAL_IMAGE_REF}" -v kms="${FAKE_KMS_URL}" -v kid="${FAKE_KMS_KID}" -v skurl="${SKOPEO_URL}" -v suburl="${LIBSUBID_URL}" -v ecurl="${LIBECONF_URL}" -v lcurl="${LIBCRYPT_URL}" '
